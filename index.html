@@ -14,7 +14,32 @@
 <body>
     <div class="container">
         <h1>IoT Water Leak Monitor</h1>
+        <p>Sensor Value: <span id="sensorValue">--</span></p>
         <p>System Status: <span id="systemStatus" class="normal">Waiting for device...</span></p>
     </div>
+
+    <script>
+        const binURL = "https://api.npoint.io/f5599e0247815c812af6";
+
+        function fetchData() {
+            fetch(binURL)
+                .then(response => response.json())
+                .then(data => {
+                    if (data) {
+                        document.getElementById("sensorValue").innerText = data.value;
+                        const statusElement = document.getElementById("systemStatus");
+                        statusElement.innerText = data.status;
+                        if (data.value > 300) {
+                            statusElement.className = "danger";
+                        } else {
+                            statusElement.className = "normal";
+                        }
+                    }
+                });
+        }
+
+        setInterval(fetchData, 3000);
+        fetchData();
+    </script>
 </body>
 </html>
