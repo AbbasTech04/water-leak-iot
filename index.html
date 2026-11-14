@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Water Leak Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f4f4f9;
+            margin-top: 50px;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            display: inline-block;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        .normal {
+            color: green;
+            font-weight: bold;
+        }
+        .danger {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>IoT Water Leak Monitor</h1>
+        <p>Sensor Value: <span id="sensorValue">--</span></p>
+        <p>System Status: <span id="systemStatus" class="normal">Connecting to Cloud...</span></p>
+    </div>
+
+    <script>
+        // Firebase Realtime Database JSON endpoint URL
+        const dbURL = "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com/waterSensor.json";
+
+        // Function to fetch data from the cloud database
+        function fetchSensorData() {
+            fetch(dbURL)
+                .then(response => response.json())
+                .then(data => {
+                    if (data) {
+                        // Update HTML elements with data received from cloud
+                        document.getElementById("sensorValue").innerText = data.value;
+                        
+                        const statusElement = document.getElementById("systemStatus");
+                        statusElement.innerText = data.status;
+
+                        // Change text color dynamically based on sensor value
+                        if (data.value > 300) {
+                            statusElement.className = "danger";
+                        } else {
+                            statusElement.className = "normal";
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error("Error fetching data from cloud:", error);
+                });
+        }
+
+        // Automatically fetch data every 3 seconds
+        setInterval(fetchSensorData, 3000);
+
+        // Initial fetch when page loads
+        fetchSensorData();
+    </script>
+
+</body>
+</html>
