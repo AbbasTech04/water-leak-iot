@@ -1,52 +1,113 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IoT Water Leak Monitor</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f9; margin-top: 50px; }
-        .container { background: white; padding: 30px; border-radius: 10px; display: inline-block; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); }
-        .normal { color: green; font-weight: bold; }
-        .danger { color: red; font-weight: bold; }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Water Leak Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.3.4/dist/mqtt.min.js"></script>
+<style>
+  :root { --bg:#eef6f8; --ink:#12323a; --ok:#1f9d6b; --bad:#d6342c; --card:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0e1d22; --ink:#e3f1f4; --card:#17303a; } }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--ink);
+         font-family: system-ui, sans-serif; transition: background .3s; }
+  body.leak { background:#5a1511; color:#fff; }
+  main { width:min(92vw,420px); text-align:center; }
+  .card { background:var(--card); border-radius:16px; padding:28px 20px; }
+  body.leak .card { background:#8f1f18; }
+  #level { font-size:88px; font-weight:700; line-height:1; margin:8px 0; }
+  #status { font-size:22px; font-weight:600; margin:8px 0 18px; }
+  .bar { height:14px; background:rgba(128,128,128,.25); border-radius:7px; overflow:hidden; }
+  #fill { height:100%; width:0; background:var(--ok); transition:width .4s, background .3s; }
+  body.leak #fill { background:#ffb4ae; }
+  #conn { font-size:14px; opacity:.7; margin-bottom:12px; }
+  button { font:inherit; padding:12px 18px; margin:6px; border-radius:10px; border:0; cursor:pointer;
+           background:var(--ink); color:var(--bg); }
+  body.leak button { background:#fff; color:#5a1511; }
+  button:focus-visible { outline:3px solid #f5b400; outline-offset:2px; }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>IoT Water Leak Monitor</h1>
-        <p>Sensor Value: <span id="sensorValue">--</span></p>
-        <p>System Status: <span id="systemStatus" class="normal">Connecting...</span></p>
-    </div>
+<main>
+  <div class="card">
+    <div id="conn">Connecting…</div>
+    <div>Water sensor level</div>
+    <div id="level">--</div>
+    <div id="status">Waiting for device</div>
+    <div class="bar"><div id="fill"></div></div>
+    <p>
+      <button id="notif">Enable notifications</button>
+      <button id="alarm">Turn device alarm off</button>
+    </p>
+  </div>
+</main>
 
-    <script>
-        const binURL = "https://api.npoint.io/8873d2c734e5e669a129";
+<script>
+// MUST match TOPIC_BASE in the ESP32 code
+const TOPIC_BASE = "becE4063/salman-leak-2026/";
+const THRESHOLD = 300;
 
-        function fetchData() {
-            fetch(binURL)
-                .then(response => response.json())
-                .then(data => {
-                    console.log("Data received:", data);
-                    if (data) {
-                        document.getElementById("sensorValue").innerText = data.value;
-                        const statusElement = document.getElementById("systemStatus");
-                        statusElement.innerText = data.status;
-                        
-                        if (data.value > 300) {
-                            statusElement.className = "danger";
-                        } else {
-                            statusElement.className = "normal";
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error("Error fetching data:", error);
-                    document.getElementById("systemStatus").innerText = "Connection Error!";
-                    document.getElementById("systemStatus").className = "danger";
-                });
-        }
+const $ = id => document.getElementById(id);
+let alarmOn = true, leakNotified = false, lastSeen = 0;
 
-        fetchData();
-        setInterval(fetchData, 2000);
-    </script>
+const client = mqtt.connect("wss://broker.hivemq.com:8884/mqtt");
+
+client.on("connect", () => {
+  $("conn").textContent = "Connected to cloud";
+  client.subscribe([TOPIC_BASE + "level", TOPIC_BASE + "alarm"]);
+});
+client.on("reconnect", () => $("conn").textContent = "Reconnecting…");
+client.on("offline",   () => $("conn").textContent = "Offline");
+
+client.on("message", (topic, payload) => {
+  const msg = payload.toString();
+  if (topic.endsWith("alarm")) {
+    alarmOn = (msg === "ON");
+    $("alarm").textContent = alarmOn ? "Turn device alarm off" : "Turn device alarm on";
+    return;
+  }
+  const v = parseInt(msg, 10);
+  lastSeen = Date.now();
+  $("level").textContent = v;
+  $("fill").style.width = Math.min(100, v / 4095 * 100) + "%";
+
+  if (v < THRESHOLD) {
+    document.body.classList.add("leak");
+    $("status").textContent = "LEAK DETECTED";
+    document.title = "LEAK! Water Leak Monitor";
+    if (!leakNotified) { leakNotified = true; alertUser(v); }
+  } else {
+    document.body.classList.remove("leak");
+    $("status").textContent = "No leak";
+    document.title = "Water Leak Monitor";
+    leakNotified = false;
+  }
+});
+
+function alertUser(v) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(); o.frequency.value = 880; o.connect(ctx.destination);
+    o.start(); setTimeout(() => o.stop(), 600);
+  } catch (e) {}
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("Water leak detected", { body: "Sensor level: " + v });
+  }
+}
+
+$("notif").onclick = () => {
+  if (!("Notification" in window)) return alert("Notifications are not supported in this browser");
+  Notification.requestPermission();
+};
+$("alarm").onclick = () => client.publish(TOPIC_BASE + "cmd", alarmOn ? "ALARM_OFF" : "ALARM_ON");
+
+// mark device offline if no data for 5 seconds
+setInterval(() => {
+  if (lastSeen && Date.now() - lastSeen > 5000) {
+    $("status").textContent = "Device offline";
+    document.body.classList.remove("leak");
+  }
+}, 2000);
+</script>
 </body>
 </html>
